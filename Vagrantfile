@@ -63,6 +63,7 @@ class UserConfig
   attr_accessor :vagrant_mount_method
   attr_accessor :java_enabled
   attr_accessor :private_registry
+  attr_accessor :license_key_contents
 
   def self.from_env
     c = new
@@ -74,6 +75,7 @@ class UserConfig
     c.version              = ENV.fetch(env_var('version'), '')
     c.generate_config_path = ENV.fetch(env_var('generate_config_path'), '')
     c.install_method       = ENV.fetch(env_var('install_method'), 'ssh_pull')
+    c.license_key_contents = ENV.fetch(env_var('license_key_contents'), '')
     c.vagrant_mount_method = ENV.fetch(env_var('vagrant_mount_method'), 'virtualbox')
     c.java_enabled         = (ENV.fetch(env_var('java_enabled'), 'false') == 'true')
     c.private_registry     = (ENV.fetch(env_var('private_registry'), 'false') == 'true')
@@ -146,6 +148,7 @@ class UserConfig
     env = {
       'DCOS_CONFIG_PATH' => UserConfig.path_to_url(@config_path),
       'DCOS_GENERATE_CONFIG_PATH' => UserConfig.path_to_url(@generate_config_path),
+      'DCOS_LICENSE_KEY_CONTENTS' => UserConfig.path_to_url(@license_key_contents),
       'DCOS_JAVA_ENABLED' => @java_enabled ? 'true' : 'false',
       'DCOS_PRIVATE_REGISTRY' => @private_registry ? 'true' : 'false'
     }
@@ -334,17 +337,24 @@ def validate_command(machine_types)
 end
 
 def error_known_good_versions
-  UI.error 'Latest known-working versions: Vagrant 1.9.3, VirtualBox 5.1.22'.red
+  UI.error 'Latest known-working versions: Vagrant 2.0.0, VirtualBox 5.1.30'.red
 end
 
 # Monkey patches and known-bad Vagrant versions
 case Vagrant::VERSION
+when '1.9.7'
+  if Vagrant::Util::Platform.windows?
+    UI.error 'Unsupported Vagrant Version (on Windows): 1.9.7'.red
+    UI.error 'For more info, see https://jira.mesosphere.com/browse/DCOS_VAGRANT-62'.red
+    error_known_good_versions
+    Vagrant.require_version '>= 1.8.4', '!= 1.8.5', '!= 1.8.7', '!= 1.9.4', '!= 1.9.7'
+  end
 when '1.9.4'
   if Vagrant::Util::Platform.windows?
     UI.error 'Unsupported Vagrant Version (on Windows): 1.9.4'.red
     UI.error 'For more info, see https://github.com/mitchellh/vagrant/issues/8520'.red
     error_known_good_versions
-    Vagrant.require_version '>= 1.8.4', '!= 1.8.5', '!= 1.8.7', '!= 1.9.4'
+    Vagrant.require_version '>= 1.8.4', '!= 1.8.5', '!= 1.8.7', '!= 1.9.4', '!= 1.9.7'
   end
 when '1.9.1'
   require_relative 'vendor/vagrant-patches/redhat_change_host_name_1.9.1'
@@ -450,6 +460,8 @@ Vagrant.configure(2) do |config|
         v.customize ['modifyvm', :id, '--natdnsproxy1', 'off']
         # Host DNS resolution required to support host proxies and faster global DNS resolution
         v.customize ['modifyvm', :id, '--natdnshostresolver1', 'on']
+        # Assign unique mac address
+        v.customize ['modifyvm', :id, '--macaddress1', 'auto']
 
         override.vm.network :private_network, ip: machine_type['ip']
 
@@ -514,6 +526,7 @@ Vagrant.configure(2) do |config|
           dcos.install_method = user_config.install_method
           dcos.machine_types = machine_types
           dcos.config_template_path = user_config.config_path
+          dcos.license_key_contents = user_config.license_key_contents
         end
       end
     end
