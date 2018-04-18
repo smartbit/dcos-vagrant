@@ -467,6 +467,21 @@ Vagrant.configure(2) do |config|
 
         # guest should sync time if more than 10s off host
         v.customize [ "guestproperty", "set", :id, "/VirtualBox/GuestAdd/VBoxService/--timesync-set-threshold", 1000 ]
+
+        # Add unmounted disk for portworx
+        if machine_type['type'] == 'agent-private'
+          line = `VBoxManage list systemproperties | grep "Default machine folder"`
+          vb_machine_folder = line.split(':')[1].strip()
+          disk_name = "portworx.vdi"
+          second_disk = File.join(vb_machine_folder, machine.vm.hostname, disk_name)
+          # Add another Hard Disk which is 20 GB in size
+          unless File.exist?(second_disk)
+            v.customize ['createhd', '--filename', second_disk, '--variant', 'Standard', '--size', 20 * 1024]
+            v.customize ["storagectl", :id, "--name", "SATA Controller", "--add", "sata"]
+          end
+          # attach the new Hard Disk
+          v.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', 2, '--device', 0, '--type', 'hdd', '--medium', second_disk]
+        end
       end
 
       # Hack to remove loopback host alias that conflicts with vagrant-hostmanager
